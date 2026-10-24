@@ -2,6 +2,12 @@
 
 Monet-like color engine and a color daemon that distributes the resulting theme across the desktop. 
 
+> [!NOTE]
+> **Repository Mirrors**
+>
+> - **git.nuros.org** ([sanarde/seurat](https://git.nuros.org/sanarde/seurat)): primary, self-hosted Forgejo instance, accounts restricted to the core team.
+> - **GitHub** ([sanarde/seurat](https://github.com/sanarde/seurat)): mirror for external contributors. Issues and Pull Requests opened here are welcome and are reviewed and processed by the core team.
+
 ## Dependencies
 
 - C17 compiler

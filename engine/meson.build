@@ -7,6 +7,8 @@ seurat_sources = files(
   'src/cam16.c',
   'src/color.c',
   'src/hct.c',
+  'src/palette.c',
+  'src/scheme.c',
 )
 
 libseurat = library(
@@ -25,6 +27,8 @@ seurat_dep = declare_dependency(
 install_headers(
   'include/seurat/color.h',
   'include/seurat/hct.h',
+  'include/seurat/palette.h',
+  'include/seurat/scheme.h',
   subdir: 'seurat',
 )
 

@@ -46,10 +46,10 @@ end
 `$XDG_CONFIG_HOME/seurat/seurat.conf` (default `~/.config/seurat/seurat.conf`), section `[seurat]`:
 
 - `enabled`: `true` or `false`. The daemon exits when set to `false`.
-- `color`: `#rrggbb`. Empty or absent selects the color from the wallpaper image, or `#4285f4` when no readable image is set.
+- `color`: `#rrggbb`. Empty or absent selects the color from the wallpaper image (PNG or JPEG), or `#4285f4` when no image is set, the image cannot be read or it has no suitable color.
 - `color_scheme`: `default`, `light` or `dark`.
 
-The file is reloaded on change and on `SIGHUP`.
+The file and the wallpaper image are watched. A change to either is applied without a restart. Deleting the configuration file takes effect on `SIGHUP`. Deleting the image keeps the last computed color.
 
 ## Links
 

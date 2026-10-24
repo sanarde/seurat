@@ -10,3 +10,5 @@ project(
     'buildtype=debugoptimized',
   ],
 )
+
+subdir('engine')

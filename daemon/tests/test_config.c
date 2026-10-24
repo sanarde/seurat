@@ -46,6 +46,9 @@ int main(void)
     CHECK(!config.enabled);
     CHECK(parse("[seurat]\ncolor = #12345\n", &config) != 0);
     CHECK(parse("[seurat]\ncolor = #12345g\n", &config) != 0);
+    CHECK(parse("[seurat]\ncolor = -00001\n", &config) != 0);
+    CHECK(parse("[seurat]\ncolor = +12345\n", &config) != 0);
+    CHECK(parse("[seurat]\ncolor = 0x1234\n", &config) != 0);
     CHECK(parse("[seurat]\ncolor_scheme = blue\n", &config) != 0);
     CHECK(parse("[seurat\n", &config) != 0);
     CHECK(parse("[seurat]\nenabled\n", &config) != 0);

@@ -43,7 +43,7 @@ static int parse_color(const char *value, uint32_t *out)
 
     if (*value == '#')
         value++;
-    if (strlen(value) != 6)
+    if (strlen(value) != 6 || strspn(value, "0123456789abcdefABCDEF") != 6)
         return -1;
     v = strtoul(value, &end, 16);
     if (*end != '\0')

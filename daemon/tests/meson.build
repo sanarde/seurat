@@ -1,7 +1,7 @@
 check_inc = include_directories('../../engine/tests')
 test_data_dir = meson.project_source_root() / 'engine/tests/data'
 
-foreach name : ['config', 'state', 'socket', 'wallpaper']
+foreach name : ['config', 'state', 'socket', 'wallpaper', 'watch']
   test_exe = executable(
     'test_' + name,
     'test_' + name + '.c',

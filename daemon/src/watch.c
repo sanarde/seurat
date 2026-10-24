@@ -20,13 +20,13 @@ static int add_dir_watch(int fd, const char *path, char *name)
         return -1;
 
     return inotify_add_watch(fd, dirname(dir_copy),
-                             IN_CLOSE_WRITE | IN_MOVED_TO | IN_MOVED_FROM |
-                                 IN_DELETE);
+                             IN_CLOSE_WRITE | IN_MOVED_TO | IN_CREATE);
 }
 
 int seuratd_watch_open(struct seuratd_watch *watch, const char *config_path,
                        const char *wallpaper_path)
 {
+    memset(watch, 0, sizeof(*watch));
     watch->fd = inotify_init1(IN_CLOEXEC);
     if (watch->fd < 0)
         return -1;
@@ -53,7 +53,10 @@ void seuratd_watch_read(struct seuratd_watch *watch, int *config_changed,
     for (char *p = buf; len > 0 && p < buf + len;) {
         const struct inotify_event *ev = (const struct inotify_event *)p;
 
-        if (ev->len > 0) {
+        if (ev->mask & IN_Q_OVERFLOW) {
+            *config_changed = 1;
+            *wallpaper_changed = 1;
+        } else if (ev->len > 0) {
             if (ev->wd == watch->config_wd &&
                 strcmp(ev->name, watch->config_name) == 0)
                 *config_changed = 1;

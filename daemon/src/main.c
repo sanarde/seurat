@@ -129,7 +129,8 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    if (seuratd_watch_open(&watch, config_path, wallpaper.path) != 0)
+    if (seuratd_watch_open(&watch, config_path, wallpaper.path) != 0 ||
+        watch.config_wd < 0)
         fprintf(stderr,
                 "seuratd: cannot watch %s, reload only on SIGHUP\n", config_path);
 
@@ -161,7 +162,7 @@ int main(int argc, char **argv)
     for (;;) {
         struct epoll_event event;
         int n = epoll_wait(epfd, &event, 1, -1);
-        struct seuratd_source *source = event.data.ptr;
+        struct seuratd_source *source;
 
         if (n < 0) {
             if (errno == EINTR)
@@ -169,6 +170,7 @@ int main(int argc, char **argv)
             fprintf(stderr, "seuratd: epoll_wait: %s\n", strerror(errno));
             break;
         }
+        source = event.data.ptr;
 
         if (source->kind == SEURATD_SRC_SIGNAL) {
             struct signalfd_siginfo info;

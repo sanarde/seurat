@@ -1,6 +1,6 @@
 # Sanar Seurat
 
-Monet color engine for Material You and a color daemon that distributes the resulting theme across the desktop. 
+Monet-like color engine and a color daemon that distributes the resulting theme across the desktop. 
 
 ## Dependencies
 

@@ -1,13 +1,11 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 #include <errno.h>
-#include <libgen.h>
 #include <limits.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/epoll.h>
-#include <sys/inotify.h>
 #include <sys/signalfd.h>
 #include <unistd.h>
 
@@ -17,6 +15,8 @@
 #include "seurat/source.h"
 #include "socket.h"
 #include "state.h"
+#include "wallpaper.h"
+#include "watch.h"
 
 static struct seuratd_socket socket_server;
 
@@ -33,57 +33,21 @@ static int open_signal_fd(void)
     return signalfd(-1, &mask, SFD_CLOEXEC);
 }
 
-static int open_config_watch(const char *path, char *name, size_t name_size)
+static uint32_t current_source(const struct seuratd_config *config,
+                               struct seuratd_wallpaper *wallpaper)
 {
-    char dir_copy[PATH_MAX];
-    char name_copy[PATH_MAX];
-    int fd;
-
-    if (snprintf(dir_copy, sizeof(dir_copy), "%s", path) >= (int)sizeof(dir_copy))
-        return -1;
-    strcpy(name_copy, dir_copy);
-    if (snprintf(name, name_size, "%s", basename(name_copy)) >= (int)name_size)
-        return -1;
-
-    fd = inotify_init1(IN_CLOEXEC);
-    if (fd < 0)
-        return -1;
-    if (inotify_add_watch(fd, dirname(dir_copy),
-                          IN_CLOSE_WRITE | IN_MOVED_TO | IN_MOVED_FROM |
-                              IN_DELETE) < 0) {
-        close(fd);
-        return -1;
-    }
-    return fd;
-}
-
-static int config_changed(int fd, const char *name)
-{
-    char buf[4096] __attribute__((aligned(__alignof__(struct inotify_event))));
-    ssize_t len = read(fd, buf, sizeof(buf));
-    int changed = 0;
-
-    for (char *p = buf; len > 0 && p < buf + len;) {
-        const struct inotify_event *ev = (const struct inotify_event *)p;
-
-        if (ev->len > 0 && strcmp(ev->name, name) == 0)
-            changed = 1;
-        p += sizeof(*ev) + ev->len;
-    }
-    return changed;
+    return config->has_color ? config->color : seuratd_wallpaper_color(wallpaper);
 }
 
 static void apply_config(const struct seuratd_config *config,
-                         struct seuratd_state *state, struct seuratd_bus *bus,
-                         int publish_always)
+                         struct seuratd_wallpaper *wallpaper,
+                         struct seuratd_state *state, struct seuratd_bus *bus)
 {
     struct seuratd_state next;
-    uint32_t source =
-        config->has_color ? config->color : SEURAT_FALLBACK_SOURCE_COLOR;
 
-    seuratd_state_compute(&next, source, config->color_scheme);
-    if (!publish_always && next.source == state->source &&
-        next.dark == state->dark)
+    seuratd_state_compute(&next, current_source(config, wallpaper),
+                          config->color_scheme);
+    if (next.source == state->source && next.dark == state->dark)
         return;
 
     *state = next;
@@ -93,6 +57,7 @@ static void apply_config(const struct seuratd_config *config,
 }
 
 static void reload_config(const char *path, struct seuratd_config *config,
+                          struct seuratd_wallpaper *wallpaper,
                           struct seuratd_state *state, struct seuratd_bus *bus)
 {
     struct seuratd_config loaded;
@@ -102,7 +67,7 @@ static void reload_config(const char *path, struct seuratd_config *config,
         return;
     }
     *config = loaded;
-    apply_config(config, state, bus, 0);
+    apply_config(config, wallpaper, state, bus);
 }
 
 static int add_epoll_source(int epfd, int fd, struct seuratd_source *source)
@@ -124,15 +89,15 @@ static int socket_path(char *buf, size_t size)
 int main(int argc, char **argv)
 {
     char config_path[PATH_MAX];
-    char config_name[NAME_MAX + 1];
     char sock_path[PATH_MAX];
     struct seuratd_source signal_source = {SEURATD_SRC_SIGNAL};
     struct seuratd_source config_source = {SEURATD_SRC_CONFIG};
     struct seuratd_config config;
     struct seuratd_state state;
     struct seuratd_bus bus = {0};
+    struct seuratd_wallpaper wallpaper = {SEURATD_WALLPAPER_PATH, 0, 0};
+    struct seuratd_watch watch;
     int sig_fd;
-    int watch_fd;
     int epfd;
 
     if (argc == 3 && strcmp(argv[1], "-c") == 0) {
@@ -164,23 +129,20 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    watch_fd = open_config_watch(config_path, config_name, sizeof(config_name));
-    if (watch_fd < 0)
+    if (seuratd_watch_open(&watch, config_path, wallpaper.path) != 0)
         fprintf(stderr,
                 "seuratd: cannot watch %s, reload only on SIGHUP\n", config_path);
 
     epfd = epoll_create1(EPOLL_CLOEXEC);
     if (epfd < 0 || add_epoll_source(epfd, sig_fd, &signal_source) != 0 ||
-        (watch_fd >= 0 &&
-         add_epoll_source(epfd, watch_fd, &config_source) != 0)) {
+        (watch.fd >= 0 &&
+         add_epoll_source(epfd, watch.fd, &config_source) != 0)) {
         fprintf(stderr, "seuratd: epoll: %s\n", strerror(errno));
         return 1;
     }
 
     socket_server.fd = -1;
-    seuratd_state_compute(&state,
-                          config.has_color ? config.color
-                                           : SEURAT_FALLBACK_SOURCE_COLOR,
+    seuratd_state_compute(&state, current_source(&config, &wallpaper),
                           config.color_scheme);
 
     if (socket_path(sock_path, sizeof(sock_path)) != 0) {
@@ -215,10 +177,19 @@ int main(int argc, char **argv)
                 continue;
             if (info.ssi_signo != SIGHUP)
                 break;
-            reload_config(config_path, &config, &state, &bus);
+            reload_config(config_path, &config, &wallpaper, &state, &bus);
         } else if (source->kind == SEURATD_SRC_CONFIG) {
-            if (config_changed(watch_fd, config_name))
-                reload_config(config_path, &config, &state, &bus);
+            int config_changed;
+            int wallpaper_changed;
+
+            seuratd_watch_read(&watch, &config_changed, &wallpaper_changed);
+            if (wallpaper_changed) {
+                seuratd_wallpaper_invalidate(&wallpaper);
+                if (!config.has_color)
+                    apply_config(&config, &wallpaper, &state, &bus);
+            }
+            if (config_changed)
+                reload_config(config_path, &config, &wallpaper, &state, &bus);
         } else if (source->kind == SEURATD_SRC_LISTEN) {
             seuratd_socket_accept(&socket_server);
         } else if (source->kind == SEURATD_SRC_CLIENT) {

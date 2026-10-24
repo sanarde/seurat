@@ -1,0 +1,6 @@
+option(
+  'wallpaper_path',
+  type: 'string',
+  value: '',
+  description: 'Image file used to derive the source color when none is configured',
+)

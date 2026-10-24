@@ -4,13 +4,21 @@
 #include <limits.h>
 #include <signal.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/epoll.h>
 #include <sys/inotify.h>
 #include <sys/signalfd.h>
 #include <unistd.h>
 
+#include "bus.h"
 #include "config.h"
+#include "loop.h"
+#include "seurat/source.h"
+#include "socket.h"
+#include "state.h"
+
+static struct seuratd_socket socket_server;
 
 static int open_signal_fd(void)
 {
@@ -65,7 +73,27 @@ static int config_changed(int fd, const char *name)
     return changed;
 }
 
-static void reload_config(const char *path, struct seuratd_config *config)
+static void apply_config(const struct seuratd_config *config,
+                         struct seuratd_state *state, struct seuratd_bus *bus,
+                         int publish_always)
+{
+    struct seuratd_state next;
+    uint32_t source =
+        config->has_color ? config->color : SEURAT_FALLBACK_SOURCE_COLOR;
+
+    seuratd_state_compute(&next, source, config->color_scheme);
+    if (!publish_always && next.source == state->source &&
+        next.dark == state->dark)
+        return;
+
+    *state = next;
+    if (socket_server.fd >= 0)
+        seuratd_socket_publish(&socket_server, state);
+    seuratd_bus_emit_changed(bus);
+}
+
+static void reload_config(const char *path, struct seuratd_config *config,
+                          struct seuratd_state *state, struct seuratd_bus *bus)
 {
     struct seuratd_config loaded;
 
@@ -74,20 +102,35 @@ static void reload_config(const char *path, struct seuratd_config *config)
         return;
     }
     *config = loaded;
+    apply_config(config, state, bus, 0);
 }
 
-static int add_epoll_fd(int epfd, int fd)
+static int add_epoll_source(int epfd, int fd, struct seuratd_source *source)
 {
-    struct epoll_event ev = {.events = EPOLLIN, .data.fd = fd};
+    struct epoll_event ev = {.events = EPOLLIN, .data.ptr = source};
 
     return epoll_ctl(epfd, EPOLL_CTL_ADD, fd, &ev);
+}
+
+static int socket_path(char *buf, size_t size)
+{
+    const char *runtime = getenv("XDG_RUNTIME_DIR");
+
+    if (!runtime || !*runtime)
+        return -1;
+    return snprintf(buf, size, "%s/seurat.sock", runtime) >= (int)size ? -1 : 0;
 }
 
 int main(int argc, char **argv)
 {
     char config_path[PATH_MAX];
     char config_name[NAME_MAX + 1];
+    char sock_path[PATH_MAX];
+    struct seuratd_source signal_source = {SEURATD_SRC_SIGNAL};
+    struct seuratd_source config_source = {SEURATD_SRC_CONFIG};
     struct seuratd_config config;
+    struct seuratd_state state;
+    struct seuratd_bus bus = {0};
     int sig_fd;
     int watch_fd;
     int epfd;
@@ -127,41 +170,73 @@ int main(int argc, char **argv)
                 "seuratd: cannot watch %s, reload only on SIGHUP\n", config_path);
 
     epfd = epoll_create1(EPOLL_CLOEXEC);
-    if (epfd < 0 || add_epoll_fd(epfd, sig_fd) != 0 ||
-        (watch_fd >= 0 && add_epoll_fd(epfd, watch_fd) != 0)) {
+    if (epfd < 0 || add_epoll_source(epfd, sig_fd, &signal_source) != 0 ||
+        (watch_fd >= 0 &&
+         add_epoll_source(epfd, watch_fd, &config_source) != 0)) {
         fprintf(stderr, "seuratd: epoll: %s\n", strerror(errno));
         return 1;
     }
 
+    socket_server.fd = -1;
+    seuratd_state_compute(&state,
+                          config.has_color ? config.color
+                                           : SEURAT_FALLBACK_SOURCE_COLOR,
+                          config.color_scheme);
+
+    if (socket_path(sock_path, sizeof(sock_path)) != 0) {
+        fprintf(stderr, "seuratd: XDG_RUNTIME_DIR is not usable, no socket\n");
+    } else if (seuratd_socket_open(&socket_server, epfd, sock_path) != 0) {
+        fprintf(stderr, "seuratd: socket %s: %s\n", sock_path, strerror(errno));
+    } else {
+        seuratd_socket_publish(&socket_server, &state);
+    }
+
+    if (seuratd_bus_open(&bus, epfd, &state) != 0 && socket_server.fd < 0) {
+        fprintf(stderr, "seuratd: no distribution channel available\n");
+        return 1;
+    }
+
     for (;;) {
-        struct epoll_event events[2];
-        int n = epoll_wait(epfd, events, 2, -1);
+        struct epoll_event event;
+        int n = epoll_wait(epfd, &event, 1, -1);
+        struct seuratd_source *source = event.data.ptr;
 
         if (n < 0) {
             if (errno == EINTR)
                 continue;
             fprintf(stderr, "seuratd: epoll_wait: %s\n", strerror(errno));
-            return 1;
+            break;
         }
 
-        for (int i = 0; i < n; i++) {
-            if (events[i].data.fd == sig_fd) {
-                struct signalfd_siginfo info;
+        if (source->kind == SEURATD_SRC_SIGNAL) {
+            struct signalfd_siginfo info;
 
-                if (read(sig_fd, &info, sizeof(info)) != sizeof(info))
-                    continue;
-                if (info.ssi_signo == SIGHUP)
-                    reload_config(config_path, &config);
-                else
-                    return 0;
-            } else if (config_changed(watch_fd, config_name)) {
-                reload_config(config_path, &config);
-            }
+            if (read(sig_fd, &info, sizeof(info)) != sizeof(info))
+                continue;
+            if (info.ssi_signo != SIGHUP)
+                break;
+            reload_config(config_path, &config, &state, &bus);
+        } else if (source->kind == SEURATD_SRC_CONFIG) {
+            if (config_changed(watch_fd, config_name))
+                reload_config(config_path, &config, &state, &bus);
+        } else if (source->kind == SEURATD_SRC_LISTEN) {
+            seuratd_socket_accept(&socket_server);
+        } else if (source->kind == SEURATD_SRC_CLIENT) {
+            seuratd_socket_client_event(&socket_server,
+                                        (struct seuratd_client *)source,
+                                        event.events);
+        } else if (source->kind == SEURATD_SRC_BUS) {
+            seuratd_bus_event(&bus, (struct seuratd_bus_watch *)source,
+                              event.events);
         }
 
         if (!config.enabled) {
             fprintf(stderr, "seuratd: disabled in configuration\n");
-            return 0;
+            break;
         }
     }
+
+    seuratd_bus_close(&bus);
+    seuratd_socket_close(&socket_server);
+    return 0;
 }

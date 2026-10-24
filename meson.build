@@ -12,3 +12,4 @@ project(
 )
 
 subdir('engine')
+subdir('daemon')

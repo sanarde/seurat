@@ -1,4 +1,4 @@
-foreach name : ['color', 'cam16', 'hct']
+foreach name : ['color', 'cam16', 'hct', 'palette', 'scheme']
   test_exe = executable(
     'test_' + name,
     'test_' + name + '.c',

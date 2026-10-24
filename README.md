@@ -16,6 +16,12 @@ meson compile -C build
 meson test -C build
 ```
 
+The image used for automatic color selection is set at configure time:
+
+```sh
+meson setup build -Dwallpaper_path=/path/to/wallpaper.png
+```
+
 ## Interfaces
 
 `seuratd` publishes the current scheme over two channels.
@@ -40,7 +46,7 @@ end
 `$XDG_CONFIG_HOME/seurat/seurat.conf` (default `~/.config/seurat/seurat.conf`), section `[seurat]`:
 
 - `enabled`: `true` or `false`. The daemon exits when set to `false`.
-- `color`: `#rrggbb`. Empty or absent selects the color automatically.
+- `color`: `#rrggbb`. Empty or absent selects the color from the wallpaper image, or `#4285f4` when no readable image is set.
 - `color_scheme`: `default`, `light` or `dark`.
 
 The file is reloaded on change and on `SIGHUP`.

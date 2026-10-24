@@ -9,11 +9,14 @@
  * Source color selection from an image.
  */
 
+/** Source color used when an image has no suitable color. */
+#define SEURAT_FALLBACK_SOURCE_COLOR 0xff4285f4u
+
 /**
  * Decodes a PNG or JPEG file and picks a source color from it. The image is
  * sampled down to at most 128 pixels per side before analysis. If no color in
- * the image is suitable (for example a grayscale image), 0xff4285f4 is
- * returned.
+ * the image is suitable (for example a grayscale image), SEURAT_FALLBACK_SOURCE_COLOR
+ * is returned.
  *
  * @param path Path to the image file.
  * @param argb Receives the opaque ARGB source color.

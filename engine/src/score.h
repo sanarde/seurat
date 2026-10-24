@@ -6,8 +6,7 @@
 #include <stdint.h>
 
 #include "quantize.h"
-
-#define SEURAT_FALLBACK_SOURCE_COLOR 0xff4285f4u
+#include "seurat/source.h"
 
 uint32_t seurat_score_source_color(const struct seurat_quantized_color *colors,
                                    size_t count);

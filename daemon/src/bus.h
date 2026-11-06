@@ -18,10 +18,14 @@ struct seuratd_bus {
     DBusConnection *connection;
     int epfd;
     const struct seuratd_state *state;
+    int (*set_wallpaper)(const char *path, void *user);
+    void *user;
 };
 
 int seuratd_bus_open(struct seuratd_bus *bus, int epfd,
-                     const struct seuratd_state *state);
+                     const struct seuratd_state *state,
+                     int (*set_wallpaper)(const char *path, void *user),
+                     void *user);
 
 void seuratd_bus_close(struct seuratd_bus *bus);
 

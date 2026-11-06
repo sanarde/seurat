@@ -23,6 +23,9 @@ static const char introspection_xml[] =
     "    <method name=\"GetSourceColor\">\n"
     "      <arg type=\"u\" direction=\"out\"/>\n"
     "    </method>\n"
+    "    <method name=\"SetWallpaper\">\n"
+    "      <arg type=\"s\" direction=\"in\"/>\n"
+    "    </method>\n"
     "    <signal name=\"SchemeChanged\">\n"
     "      <arg type=\"a{su}\"/>\n"
     "    </signal>\n"
@@ -126,6 +129,18 @@ static DBusHandlerResult handle_message(DBusConnection *connection,
         if (reply)
             dbus_message_append_args(reply, DBUS_TYPE_UINT32, &source,
                                      DBUS_TYPE_INVALID);
+    } else if (dbus_message_is_method_call(message, INTERFACE, "SetWallpaper")) {
+        const char *path;
+
+        if (!dbus_message_get_args(message, NULL, DBUS_TYPE_STRING, &path,
+                                   DBUS_TYPE_INVALID))
+            reply = dbus_message_new_error(message, DBUS_ERROR_INVALID_ARGS,
+                                           "expected a path");
+        else if (bus->set_wallpaper(path, bus->user) != 0)
+            reply = dbus_message_new_error(message, DBUS_ERROR_FAILED,
+                                           "cannot use the path");
+        else
+            reply = dbus_message_new_method_return(message);
     } else if (dbus_message_is_method_call(
                    message, "org.freedesktop.DBus.Introspectable",
                    "Introspect")) {
@@ -151,13 +166,17 @@ static const DBusObjectPathVTable vtable = {
 };
 
 int seuratd_bus_open(struct seuratd_bus *bus, int epfd,
-                     const struct seuratd_state *state)
+                     const struct seuratd_state *state,
+                     int (*set_wallpaper)(const char *path, void *user),
+                     void *user)
 {
     DBusError error;
 
     bus->connection = NULL;
     bus->epfd = epfd;
     bus->state = state;
+    bus->set_wallpaper = set_wallpaper;
+    bus->user = user;
 
     dbus_error_init(&error);
     bus->connection = dbus_bus_get_private(DBUS_BUS_SESSION, &error);

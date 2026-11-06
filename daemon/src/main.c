@@ -70,6 +70,25 @@ static void reload_config(const char *path, struct seuratd_config *config,
     apply_config(config, wallpaper, state, bus);
 }
 
+struct wallpaper_request {
+    struct seuratd_config *config;
+    struct seuratd_wallpaper *wallpaper;
+    struct seuratd_state *state;
+    struct seuratd_bus *bus;
+};
+
+static int set_wallpaper(const char *path, void *user)
+{
+    struct wallpaper_request *request = user;
+
+    if (seuratd_wallpaper_set(request->wallpaper, path) != 0)
+        return -1;
+    if (!request->config->has_color)
+        apply_config(request->config, request->wallpaper, request->state,
+                     request->bus);
+    return 0;
+}
+
 static int add_epoll_source(int epfd, int fd, struct seuratd_source *source)
 {
     struct epoll_event ev = {.events = EPOLLIN, .data.ptr = source};
@@ -95,8 +114,9 @@ int main(int argc, char **argv)
     struct seuratd_config config;
     struct seuratd_state state;
     struct seuratd_bus bus = {0};
-    struct seuratd_wallpaper wallpaper = {SEURATD_WALLPAPER_PATH, 0, 0};
+    struct seuratd_wallpaper wallpaper = {.path = SEURATD_WALLPAPER_PATH};
     struct seuratd_watch watch;
+    struct wallpaper_request request = {&config, &wallpaper, &state, &bus};
     int sig_fd;
     int epfd;
 
@@ -154,7 +174,7 @@ int main(int argc, char **argv)
         seuratd_socket_publish(&socket_server, &state);
     }
 
-    if (seuratd_bus_open(&bus, epfd, &state) != 0 && socket_server.fd < 0) {
+    if (seuratd_bus_open(&bus, epfd, &state, set_wallpaper, &request) != 0 && socket_server.fd < 0) {
         fprintf(stderr, "seuratd: no distribution channel available\n");
         return 1;
     }

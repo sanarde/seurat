@@ -36,6 +36,7 @@ D-Bus (session bus): name `org.nuros.sanar.seurat`, object `/org/nuros/sanar/seu
 
 - `GetScheme() -> a{su}`: role name to opaque ARGB.
 - `GetSourceColor() -> u`: source color as ARGB.
+- `SetWallpaper(s path)`: use the image at `path` as the wallpaper from now on, in place of the one set at configure time. An empty path selects the fallback color. The setting is not saved and is lost when `seuratd` restarts. Any client of the session bus can call it.
 - Signal `SchemeChanged(a{su})`.
 
 Unix socket: `$XDG_RUNTIME_DIR/seurat.sock`. A client receives the current scheme on connect and again on every change, as text blocks:
